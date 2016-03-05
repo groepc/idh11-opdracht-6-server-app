@@ -1,5 +1,7 @@
 package com.perryfaro.android2;
 
+import android.content.res.AssetManager;
+
 import java.io.*;
 import java.net.*;
 import java.util.*;
@@ -52,7 +54,7 @@ public class Server {
     //--------------------------------
     //Constructor
     //--------------------------------
-    public Server(){
+    public Server(AssetManager am) {
 
 
         //init Timer
@@ -66,105 +68,93 @@ public class Server {
 */
         //allocate memory for the sending buffer
         buf = new byte[15000];
-    }
-
-    //------------------------------------
-    //main
-    //------------------------------------
-    public static void main(String argv[]) throws Exception
-    {
-        //create a Server object
-        Server theServer = new Server();
-
 
         //get RTSP socket port from the command line
         int RTSPport = Integer.parseInt("30000");
 
         //Initiate TCP connection with the client for the RTSP session
-        ServerSocket listenSocket = new ServerSocket(RTSPport);
-        theServer.RTSPsocket = listenSocket.accept();
-        listenSocket.close();
+        try {
+            System.out.println("Server is started");
+            ServerSocket listenSocket = new ServerSocket(RTSPport);
+            RTSPsocket = listenSocket.accept();
+            listenSocket.close();
 
-        //Get Client IP address
-        theServer.ClientIPAddr = theServer.RTSPsocket.getInetAddress();
 
-        //Initiate RTSPstate
-        state = INIT;
+            //Get Client IP address
+            ClientIPAddr = RTSPsocket.getInetAddress();
 
-        //Set input and output stream filters:
-        RTSPBufferedReader = new BufferedReader(new InputStreamReader(theServer.RTSPsocket.getInputStream()) );
-        RTSPBufferedWriter = new BufferedWriter(new OutputStreamWriter(theServer.RTSPsocket.getOutputStream()) );
+            //Initiate RTSPstate
+            state = INIT;
 
-        //Wait for the SETUP message from the client
-        int request_type;
-        boolean done = false;
-        while(!done)
-        {
-            System.out.println("New RTSP state: wachten");
-            request_type = theServer.parse_RTSP_request(); //blocking
+            //Set input and output stream filters:
+            RTSPBufferedReader = new BufferedReader(new InputStreamReader(RTSPsocket.getInputStream()));
+            RTSPBufferedWriter = new BufferedWriter(new OutputStreamWriter(RTSPsocket.getOutputStream()));
 
-            if (request_type == SETUP)
-            {
-                done = true;
+            //Wait for the SETUP message from the client
+            int request_type;
+            boolean done = false;
+            while (!done) {
+                System.out.println("New RTSP state: wachten");
+                request_type = parse_RTSP_request(); //blocking
 
-                //update RTSP state
-                state = READY;
-                System.out.println("New RTSP state: READY");
+                if (request_type == SETUP) {
+                    done = true;
 
-                //Send response
-                theServer.send_RTSP_response();
+                    //update RTSP state
+                    state = READY;
+                    System.out.println("New RTSP state: READY");
 
-                //init the VideoStream object:
-                theServer.video = new VideoStream(VideoFileName);
+                    //Send response
+                    send_RTSP_response();
 
-                //init RTP socket
-                theServer.RTPsocket = new DatagramSocket();
+                    //init the VideoStream object:
+                    video = new VideoStream(am, VideoFileName);
+
+                    //init RTP socket
+                    RTPsocket = new DatagramSocket();
+                }
             }
-        }
 
-        //loop to handle RTSP requests
-        while(true)
-        {
-            //parse the request
-            request_type = theServer.parse_RTSP_request(); //blocking
+            //loop to handle RTSP requests
+            while (true) {
+                //parse the request
+                request_type = parse_RTSP_request(); //blocking
 
-            if ((request_type == PLAY) && (state == READY))
-            {
-                //send back response
-                theServer.send_RTSP_response();
-                //start timer
-                theServer.timer.scheduleAtFixedRate(new TimerTask() {
-                    @Override
-                    public void run() {
+                if ((request_type == PLAY) && (state == READY)) {
+                    //send back response
+                    send_RTSP_response();
+                    //start timer
+                    timer.scheduleAtFixedRate(new TimerTask() {
+                        @Override
+                        public void run() {
+                            timerAction();
+                        }
+                    }, 0, FRAME_PERIOD);
+                    //update state
+                    state = PLAYING;
+                    System.out.println("New RTSP state: PLAYING");
+                } else if ((request_type == PAUSE) && (state == PLAYING)) {
+                    //send back response
+                    send_RTSP_response();
+                    //stop timer
+                    timer.cancel();
+                    //update state
+                    state = READY;
+                    System.out.println("New RTSP state: READY");
+                } else if (request_type == TEARDOWN) {
+                    //send back response
+                    send_RTSP_response();
+                    //stop timer
+                    timer.cancel();
+                    //close sockets
+                    RTPsocket.close();
 
-                    }
-                }, 0, FRAME_PERIOD);
-                //update state
-                state = PLAYING;
-                System.out.println("New RTSP state: PLAYING");
+                    System.exit(0);
+                }
             }
-            else if ((request_type == PAUSE) && (state == PLAYING))
-            {
-                //send back response
-                theServer.send_RTSP_response();
-                //stop timer
-                theServer.timer.cancel();
-                //update state
-                state = READY;
-                System.out.println("New RTSP state: READY");
-            }
-            else if (request_type == TEARDOWN)
-            {
-                //send back response
-                theServer.send_RTSP_response();
-                //stop timer
-                theServer.timer.cancel();
-                //close sockets
-                theServer.RTSPsocket.close();
-                theServer.RTPsocket.close();
-
-                System.exit(0);
-            }
+        } catch (Exception e) {
+            System.out.println("Something went wrong");
+            System.out.println(e.getMessage());
         }
     }
 
@@ -172,11 +162,10 @@ public class Server {
     //------------------------
     //Handler for timer
     //------------------------
-    public void actionPerformed(ActionEvent e) {
+    public void timerAction() {
 
         //if the current image nb is less than the length of the video
-        if (imagenb < VIDEO_LENGTH)
-        {
+        if (imagenb < VIDEO_LENGTH) {
             //update current imagenb
             imagenb++;
 
@@ -185,7 +174,7 @@ public class Server {
                 int image_length = video.getnextframe(buf);
 
                 //Builds an RTPpacket object containing the frame
-                RTPpacket rtp_packet = new RTPpacket(MJPEG_TYPE, imagenb, imagenb*FRAME_PERIOD, buf, image_length);
+                RTPpacket rtp_packet = new RTPpacket(MJPEG_TYPE, imagenb, imagenb * FRAME_PERIOD, buf, image_length);
 
                 //get to total length of the full rtp packet to send
                 int packet_length = rtp_packet.getlength();
@@ -203,16 +192,12 @@ public class Server {
                 rtp_packet.printheader();
 
                 //update GUI
-                label.setText("Send frame #" + imagenb);
-            }
-            catch(Exception ex)
-            {
-                System.out.println("Exception caught: "+ex);
+                //label.setText("Send frame #" + imagenb); //update
+            } catch (Exception ex) {
+                System.out.println("Exception caught: " + ex);
                 System.exit(0);
             }
-        }
-        else
-        {
+        } else {
             //if we have reached the end of the video file, stop the timer
             timer.cancel();
         }
@@ -221,10 +206,9 @@ public class Server {
     //------------------------------------
     //Parse RTSP Request
     //------------------------------------
-    private int parse_RTSP_request()
-    {
+    private int parse_RTSP_request() {
         int request_type = -1;
-        try{
+        try {
             //parse request line and extract the request_type:
             String RequestLine = RTSPBufferedReader.readLine();
             //System.out.println("RTSP Server - Received from Client:");
@@ -243,8 +227,7 @@ public class Server {
             else if ((new String(request_type_string)).compareTo("TEARDOWN") == 0)
                 request_type = TEARDOWN;
 
-            if (request_type == SETUP)
-            {
+            if (request_type == SETUP) {
                 //extract VideoFileName from RequestLine
                 VideoFileName = tokens.nextToken();
             }
@@ -260,39 +243,33 @@ public class Server {
             String LastLine = RTSPBufferedReader.readLine();
             System.out.println(LastLine);
 
-            if (request_type == SETUP)
-            {
+            if (request_type == SETUP) {
                 //extract RTP_dest_port from LastLine
                 tokens = new StringTokenizer(LastLine);
-                for (int i=0; i<3; i++)
+                for (int i = 0; i < 3; i++)
                     tokens.nextToken(); //skip unused stuff
                 RTP_dest_port = Integer.parseInt(tokens.nextToken());
             }
             //else LastLine will be the SessionId line ... do not check for now.
-        }
-        catch(Exception ex)
-        {
-            System.out.println("Exception caught: "+ex);
+        } catch (Exception ex) {
+            System.out.println("Exception caught: " + ex);
             System.exit(0);
         }
-        return(request_type);
+        return (request_type);
     }
 
     //------------------------------------
     //Send RTSP Response
     //------------------------------------
-    private void send_RTSP_response()
-    {
-        try{
-            RTSPBufferedWriter.write("RTSP/1.0 200 OK"+CRLF);
-            RTSPBufferedWriter.write("CSeq: "+RTSPSeqNb+CRLF);
-            RTSPBufferedWriter.write("Session: "+RTSP_ID+CRLF);
+    private void send_RTSP_response() {
+        try {
+            RTSPBufferedWriter.write("RTSP/1.0 200 OK" + CRLF);
+            RTSPBufferedWriter.write("CSeq: " + RTSPSeqNb + CRLF);
+            RTSPBufferedWriter.write("Session: " + RTSP_ID + CRLF);
             RTSPBufferedWriter.flush();
             //System.out.println("RTSP Server - Sent response to Client.");
-        }
-        catch(Exception ex)
-        {
-            System.out.println("Exception caught: "+ex);
+        } catch (Exception ex) {
+            System.out.println("Exception caught: " + ex);
             System.exit(0);
         }
     }

@@ -1,19 +1,33 @@
 package com.perryfaro.android2;
 
-import java.io.*;
+import android.content.res.AssetManager;
+import android.net.Uri;
+
+import java.io.InputStream;
 
 public class VideoStream {
 
-    FileInputStream fis; //video file
+    InputStream fis; //video file
     int frame_nb; //current frame nb
 
     //-----------------------------------
     //constructor
     //-----------------------------------
-    public VideoStream(String filename) throws Exception{
+    public VideoStream(AssetManager am, String filename) throws Exception{
+
+
 
         //init variables
-        fis = new FileInputStream(filename);
+        Uri path = Uri.parse("assets://" + filename);
+
+        String newPath = path.toString();
+        //filename = "assets://" + filename;
+
+
+        fis = am.open(filename);
+
+
+       // fis = new FileInputStream(filename);
         frame_nb = 0;
     }
 
