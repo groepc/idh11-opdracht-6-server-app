@@ -36,10 +36,9 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void run() {
 
-                new Server(am);
+                new ServerSetup(am);
             }
         };
-
         thread.start();
 
         FloatingActionButton fab = (FloatingActionButton) findViewById(R.id.fab);

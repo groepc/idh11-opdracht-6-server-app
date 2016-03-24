@@ -188,15 +188,15 @@ public class RTPpacket {
         for (int i = 0; i < (HEADER_SIZE - 4); i++) {
             for (int j = 7; j >= 0; j--) {
                 if (((1 << j) & header[i]) != 0) {
-                    System.out.print("1");
+                    //System.out.print("1");
                 } else {
-                    System.out.print("0");
+                    //System.out.print("0");
                 }
             }
-            System.out.print(" ");
+            //System.out.print(" ");
         }
 
-        System.out.println();
+        //System.out.println();
 
     }
 

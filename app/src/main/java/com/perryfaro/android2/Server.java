@@ -2,18 +2,28 @@ package com.perryfaro.android2;
 
 import android.content.res.AssetManager;
 
-import java.io.*;
-import java.net.*;
-import java.util.*;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
+import java.net.Socket;
+import java.util.StringTokenizer;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.concurrent.ThreadLocalRandom;
 
-public class Server {
+public class Server implements Runnable {
 
+    private final AssetManager am;
     //RTP variables:
     //----------------
     DatagramSocket RTPsocket; //socket to be used to send and receive UDP packets
     DatagramPacket senddp; //UDP packet containing the video frames
 
-    InetAddress ClientIPAddr; //Client IP address
+    private final InetAddress ClientIPAddr; //Client IP address
     int RTP_dest_port = 0; //destination port for RTP packets  (given by the RTSP Client)
 
 
@@ -40,26 +50,35 @@ public class Server {
     final static int PAUSE = 5;
     final static int TEARDOWN = 6;
 
-    static int state; //RTSP Server state == INIT or READY or PLAY
-    Socket RTSPsocket; //socket used to send/receive RTSP messages
+    int state; //RTSP Server state == INIT or READY or PLAY
+    private final Socket RTSPsocket; //socket used to send/receive RTSP messages
     //input and output stream filters
-    static BufferedReader RTSPBufferedReader;
-    static BufferedWriter RTSPBufferedWriter;
-    static String VideoFileName; //video file requested from the client
-    static int RTSP_ID = 123456; //ID of the RTSP session
+    BufferedReader RTSPBufferedReader;
+    BufferedWriter RTSPBufferedWriter;
+    String VideoFileName; //video file requested from the client
+    int RTSP_ID = 123456; //ID of the RTSP session
     int RTSPSeqNb = 0; //Sequence number of RTSP messages within the session
 
     final static String CRLF = "\r\n";
 
-    //--------------------------------
-    //Constructor
-    //--------------------------------
-    public Server(AssetManager am) {
+    public Server(Socket clientSocket, AssetManager am) {
+        this.am = am;
+
+        RTSP_ID = ThreadLocalRandom.current().nextInt(100000, 999999 + 1);
+        RTSPsocket = clientSocket;
+
+        //Get Client IP address
+        ClientIPAddr = RTSPsocket.getInetAddress();
+    }
+
+
+    @Override
+    public void run() {
 
 
         //init Timer
 
-        timer = new Timer();
+
 
         /*
         timer = new Timer(FRAME_PERIOD, this);
@@ -69,19 +88,10 @@ public class Server {
         //allocate memory for the sending buffer
         buf = new byte[15000];
 
-        //get RTSP socket port from the command line
-        int RTSPport = Integer.parseInt("30000");
 
         //Initiate TCP connection with the client for the RTSP session
         try {
             System.out.println("Server is started");
-            ServerSocket listenSocket = new ServerSocket(RTSPport);
-            RTSPsocket = listenSocket.accept();
-            listenSocket.close();
-
-
-            //Get Client IP address
-            ClientIPAddr = RTSPsocket.getInetAddress();
 
             //Initiate RTSPstate
             state = INIT;
@@ -99,7 +109,6 @@ public class Server {
 
                 if (request_type == SETUP) {
                     done = true;
-
                     //update RTSP state
                     state = READY;
                     System.out.println("New RTSP state: READY");
@@ -124,6 +133,7 @@ public class Server {
                     //send back response
                     send_RTSP_response();
                     //start timer
+                    timer = new Timer();
                     timer.scheduleAtFixedRate(new TimerTask() {
                         @Override
                         public void run() {
@@ -138,6 +148,8 @@ public class Server {
                     send_RTSP_response();
                     //stop timer
                     timer.cancel();
+                    timer.purge();
+                    timer = null;
                     //update state
                     state = READY;
                     System.out.println("New RTSP state: READY");
@@ -146,10 +158,10 @@ public class Server {
                     send_RTSP_response();
                     //stop timer
                     timer.cancel();
+                    timer.purge();
+                    timer = null;
                     //close sockets
                     RTPsocket.close();
-
-                    System.exit(0);
                 }
             }
         } catch (Exception e) {
